@@ -1,0 +1,24 @@
+diff --git a/FsCrypt.cpp b/FsCrypt.cpp
+index 7505e56..bc18f95 100644
+--- a/FsCrypt.cpp
++++ b/FsCrypt.cpp
+@@ -847,6 +847,19 @@ bool fscrypt_prepare_user_storage(const std::string& volume_uuid, userid_t user_
+         auto user_de_path = android::vold::BuildDataUserDePath(volume_uuid, user_id);
+ 
+         if (volume_uuid.empty()) {
++            // P4.49 (SO-01K Oreo-era /data compatibility, root cause proven by
++            // P4.48): the framework init.rc creates the top-level per-user parent
++            // dirs (mkdir /data/vendor_de 0551 root root encryption=None) before
++            // vold runs, and fs_prepare_dir() only creates a single level so it
++            // assumes that parent already exists. Recovery init never runs that
++            // step and this device's existing /data has no /data/vendor_de, so
++            // mkdir of /data/vendor_de/<user> below fails with ENOENT. Recreate
++            // exactly that missing parent, empty and without any per-user policy.
++            auto vendor_de_parent = android::vold::BuildDataPath("") + "/vendor_de";
++            if (!prepare_dir(vendor_de_parent, 0551, AID_ROOT, AID_ROOT)) {
++                LOG(ERROR) << "P4.49: failed to prepare " << vendor_de_parent;
++                return false;
++            }
+             if (!prepare_dir(system_legacy_path, 0700, AID_SYSTEM, AID_SYSTEM)) return false;
+ #if MANAGE_MISC_DIRS
+             if (!prepare_dir(misc_legacy_path, 0750, multiuser_get_uid(user_id, AID_SYSTEM),

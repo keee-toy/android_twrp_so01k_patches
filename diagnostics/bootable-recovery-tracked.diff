@@ -1,0 +1,310 @@
+diff --git a/gui/gui.cpp b/gui/gui.cpp
+index 874cdd9..a40b56e 100755
+--- a/gui/gui.cpp
++++ b/gui/gui.cpp
+@@ -33,6 +33,7 @@
+ #include <sys/mount.h>
+ #include <time.h>
+ #include <unistd.h>
++#include <cutils/properties.h>
+ 
+ extern "C"
+ {
+@@ -40,6 +41,7 @@ extern "C"
+ #include <pixelflinger/pixelflinger.h>
+ }
+ #include "minuitwrp/minui.h"
++void gr_fbdev_arm_p31_splash_flip(void);
+ 
+ #include "rapidxml.hpp"
+ #include "objects.hpp"
+@@ -51,6 +53,7 @@ extern "C"
+ #include "../orscmd/orscmd.h"
+ #include "blanktimer.hpp"
+ #include "tw_atomic.hpp"
++#include "p435_stage.h"
+ 
+ // Enable to print render time of each frame to the log file
+ //#define PRINT_RENDER_TIME 1
+@@ -757,6 +760,7 @@ std::string gui_lookup(const std::string& resource_name, const std::string& defa
+ 
+ extern "C" int gui_init(void)
+ {
++	so01k_p435_publish_preui_stage(SO01K_P435_GR_INIT_REACHED);
+ 	gr_init();
+ 	TWFunc::Set_Brightness(DataManager::GetStrValue("tw_brightness"));
+ 
+@@ -772,7 +776,9 @@ extern "C" int gui_init(void)
+ 	}
+ 	else {
+ 		PageManager::SelectPackage("splash");
+-		PageManager::Render();
++		const int so01k_p31_render_result = PageManager::Render();
++		if (so01k_p31_render_result >= 0)
++			gr_fbdev_arm_p31_splash_flip();
+ 		flip();
+ 		PageManager::ReleasePackage("splash");
+ 	}
+diff --git a/minuitwrp/graphics_fbdev.cpp b/minuitwrp/graphics_fbdev.cpp
+index 499e0ea..10a4d37 100644
+--- a/minuitwrp/graphics_fbdev.cpp
++++ b/minuitwrp/graphics_fbdev.cpp
+@@ -15,6 +15,7 @@
+  */
+ 
+ #include <stdbool.h>
++#include <errno.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <unistd.h>
+@@ -30,6 +31,7 @@
+ #include <linux/fb.h>
+ #include <linux/kd.h>
+ 
++#include <cutils/properties.h>
+ #include "minuitwrp/minui.h"
+ #include "graphics.h"
+ #include <pixelflinger/pixelflinger.h>
+@@ -45,8 +47,32 @@ static GRSurface* gr_draw = NULL;
+ static int displayed_buffer;
+ 
+ static fb_var_screeninfo vi;
++static fb_fix_screeninfo fi;
+ static int fb_fd = -1;
+ static __u32 smem_len;
++static bool so01k_p31_splash_flip_armed;
++
++void gr_fbdev_arm_p31_splash_flip(void) {
++    so01k_p31_splash_flip_armed = true;
++}
++
++static void so01k_p31_classify(const char* result, int put_result, int put_errno,
++                               unsigned page) {
++    const int metadata_fd = open("/tmp/so01k-p31-splash-put-result.txt",
++                                 O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
++    if (metadata_fd >= 0) {
++        dprintf(metadata_fd,
++                "class=%s\nreturn=%d\nerrno=%d\n"
++                "xres=%u\nyres=%u\nxres_virtual=%u\nyres_virtual=%u\n"
++                "xoffset=%u\nyoffset=%u\nbits_per_pixel=%u\n"
++                "line_length=%u\nsmem_len=%u\npage=%u\n",
++                result, put_result, put_errno, vi.xres, vi.yres,
++                vi.xres_virtual, vi.yres_virtual, vi.xoffset, vi.yoffset,
++                vi.bits_per_pixel, fi.line_length, fi.smem_len, page);
++        close(metadata_fd);
++    }
++    property_set("sys.so01k.p31.splash_put_result", result);
++}
+ 
+ static minui_backend my_backend = {
+     .init = fbdev_init,
+@@ -101,7 +127,9 @@ static void set_displayed_framebuffer(unsigned n)
+     vi.yres_virtual = gr_framebuffer[0].height * 2;
+     vi.yoffset = n * gr_framebuffer[0].height;
+     vi.bits_per_pixel = gr_framebuffer[0].pixel_bytes * 8;
+-    if (ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vi) < 0) {
++    const int put_result = ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vi);
++    const int put_errno = put_result < 0 ? errno : 0;
++    if (put_result < 0) {
+         perror("active fb swap failed");
+ #ifdef TW_FBIOPAN
+     } else {
+@@ -111,6 +139,11 @@ static void set_displayed_framebuffer(unsigned n)
+ #endif
+     }
+     displayed_buffer = n;
++    if (so01k_p31_splash_flip_armed) {
++        so01k_p31_splash_flip_armed = false;
++        so01k_p31_classify(put_result == 0 ? "double_put_success" : "double_put_failure",
++                           put_result, put_errno, n);
++    }
+ }
+ 
+ static GRSurface* fbdev_init(minui_backend* backend) {
+@@ -160,7 +193,6 @@ static GRSurface* fbdev_init(minui_backend* backend) {
+     }
+ #endif
+ 
+-    fb_fix_screeninfo fi;
+     if (ioctl(fd, FBIOGET_FSCREENINFO, &fi) < 0) {
+         perror("failed to get fb0 info (FBIOGET_FSCREENINFO)");
+         close(fd);
+@@ -302,6 +334,10 @@ static GRSurface* fbdev_flip(minui_backend* backend __unused) {
+         // Copy from the in-memory surface to the framebuffer.
+         memcpy(gr_framebuffer[0].data, gr_draw->data,
+                gr_draw->height * gr_draw->row_bytes);
++        if (so01k_p31_splash_flip_armed) {
++            so01k_p31_splash_flip_armed = false;
++            so01k_p31_classify("single_copy", 0, 0, 0);
++        }
+     }
+     return gr_draw;
+ }
+diff --git a/partitionmanager.cpp b/partitionmanager.cpp
+index 2766b4c..e18353c 100755
+--- a/partitionmanager.cpp
++++ b/partitionmanager.cpp
+@@ -17,6 +17,7 @@
+ */
+ 
+ #include <stdio.h>
++#include <stdint.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <sys/stat.h>
+@@ -74,6 +75,7 @@
+ #include "twrpDigestDriver.hpp"
+ #include "twrpRepacker.hpp"
+ #include "adbbu/libtwadbbu.hpp"
++#include "p435_stage.h"
+ 
+ #ifdef TW_LOAD_VENDOR_MODULES
+ #include "kernel_module_loader.hpp"
+@@ -123,6 +125,62 @@ using android::fs_mgr::Fstab;
+ using android::fs_mgr::FstabEntry;
+ using android::fs_mgr::MetadataBuilder;
+ 
++namespace {
++
++constexpr char kSo01kP435StagePath[] = "/tmp/p435-pre-fstab-stage";
++constexpr uint32_t kSo01kP435StageMagic = 0x50343335U;
++constexpr uint32_t kSo01kP435StageVersion = 1U;
++constexpr uint64_t kSo01kP435StageCheckSeed = 0x534f30314b503435ULL;
++
++struct So01kP435StageRecord {
++	uint32_t magic;
++	uint32_t version;
++	uint32_t stage;
++	uint32_t stage_inverse;
++	uint64_t boottime_ns;
++	uint64_t checksum;
++};
++
++static_assert(sizeof(So01kP435StageRecord) == 32,
++	"P4.35 stage publication must remain fixed-size");
++
++uint64_t so01k_p435_stage_checksum(const So01kP435StageRecord& record) {
++	return kSo01kP435StageCheckSeed ^ record.magic ^
++		(static_cast<uint64_t>(record.version) << 32) ^ record.stage ^
++		(static_cast<uint64_t>(record.stage_inverse) << 32) ^
++		record.boottime_ns;
++}
++
++}  // namespace
++
++void so01k_p435_publish_preui_stage(unsigned stage) {
++	/* All P4.35 call sites execute serially on recovery's startup thread. */
++	static unsigned last_published_stage;
++	if (stage <= last_published_stage || stage > SO01K_P435_GR_INIT_REACHED)
++		return;
++
++	struct timespec timestamp;
++	if (clock_gettime(CLOCK_BOOTTIME, &timestamp) != 0)
++		return;
++
++	So01kP435StageRecord record = {};
++	record.magic = kSo01kP435StageMagic;
++	record.version = kSo01kP435StageVersion;
++	record.stage = stage;
++	record.stage_inverse = ~stage;
++	record.boottime_ns = static_cast<uint64_t>(timestamp.tv_sec) * 1000000000ULL +
++		static_cast<uint64_t>(timestamp.tv_nsec);
++	record.checksum = so01k_p435_stage_checksum(record);
++
++	int fd = open(kSo01kP435StagePath, O_WRONLY | O_CREAT | O_CLOEXEC, 0600);
++	if (fd < 0)
++		return;
++	ssize_t written = pwrite(fd, &record, sizeof(record), 0);
++	close(fd);
++	if (written == static_cast<ssize_t>(sizeof(record)))
++		last_published_stage = stage;
++}
++
+ extern bool datamedia;
+ std::vector<users_struct> Users_List;
+ 
+@@ -264,6 +322,7 @@ void inline Process_Keymaster_Version(TWPartition *ven, bool Display_Error) {
+ }
+ 
+ int TWPartitionManager::Process_Fstab(string Fstab_Filename, bool Display_Error, bool recovery_mode) {
++	so01k_p435_publish_preui_stage(SO01K_P435_PROCESS_FSTAB_ENTERED);
+ 	FILE *fstabFile;
+ 	char fstab_line[MAX_FSTAB_LINE_LENGTH];
+ 	bool parse_userdata = false;
+diff --git a/twrp.cpp b/twrp.cpp
+index eedc581..aa49a3c 100644
+--- a/twrp.cpp
++++ b/twrp.cpp
+@@ -57,6 +57,8 @@ extern "C" {
+ #include "openrecoveryscript.hpp"
+ #include "variables.h"
+ #include "startupArgs.hpp"
++#include "p435_stage.h"
++#include "p436_stage_marker.h"
+ #include "twrpAdbBuFifo.hpp"
+ #ifdef TW_USE_NEW_MINADBD
+ // #include "minadbd/minadbd.h"
+@@ -77,6 +79,13 @@ TWPartitionManager PartitionManager;
+ int Log_Offset;
+ bool datamedia;
+ 
++/* The dynamic linker calls this DT_INIT_ARRAY entry before transferring to
++ * the executable entry point. `used` keeps it registered under optimization;
++ * its direct-syscall publisher adds no runtime import. */
++__attribute__((constructor, used)) static void so01k_p436_runtime_pre_main(void) {
++	so01k_p436_publish_stage(SO01K_P436_RUNTIME_PRE_MAIN);
++}
++
+ static void Print_Prop(const char *key, const char *name, void *cookie) {
+ 	printf("%s=%s\n", key, name);
+ }
+@@ -342,6 +351,9 @@ static void reboot() {
+ }
+ 
+ int main(int argc, char **argv) {
++	so01k_p436_publish_stage(SO01K_P436_MAIN_ENTERED);
++	// P4.35 stage 1: recovery main entered (deepest diagnostic before stall)
++	so01k_p435_publish_preui_stage(SO01K_P435_RECOVERY_MAIN_ENTERED);
+ 	// Recovery needs to install world-readable files, so clear umask
+ 	// set by init
+ 	umask(0);
+@@ -383,20 +395,30 @@ int main(int argc, char **argv) {
+ 
+ 	// Load default values to set DataManager constants and handle ifdefs
+ 	DataManager::SetDefaultValues();
++	// P4.35 stage 2: DataManager defaults complete
++	so01k_p435_publish_preui_stage(SO01K_P435_EARLY_SETUP_DONE);
+ 	startupArgs startup;
+ 	startup.parse(&argc, &argv);
+ 	android::base::SetProperty(TW_FASTBOOT_MODE_PROP, startup.Get_Fastboot_Mode() ? "1" : "0");
++	// P4.35 stage 3: startup args parsed and fastboot property set
++	so01k_p435_publish_preui_stage(SO01K_P435_STARTUP_SETUP_DONE);
+ 	printf("=> Linking mtab\n");
+ 	symlink("/proc/mounts", "/etc/mtab");
+ 	std::string fstab_filename = "/etc/twrp.fstab";
+ 	if (!TWFunc::Path_Exists(fstab_filename)) {
+ 		fstab_filename = "/etc/recovery.fstab";
+ 	}
++	// P4.35 stage 4: fstab path selection complete
++	so01k_p435_publish_preui_stage(SO01K_P435_FSTAB_PATH_DONE);
+ 	printf("=> Processing %s\n", fstab_filename.c_str());
++	// P4.35 stage 5: immediately before Process_Fstab
++	so01k_p435_publish_preui_stage(SO01K_P435_BEFORE_PROCESS_FSTAB);
+ 	if (!PartitionManager.Process_Fstab(fstab_filename, 1, !startup.Get_Fastboot_Mode())) {
+ 		LOGERR("Failing out of recovery due to problem with fstab.\n");
+ 		return -1;
+ 	}
++	// P4.35 stage 7: Process_Fstab returned
++	so01k_p435_publish_preui_stage(SO01K_P435_PROCESS_FSTAB_RETURNED);
+ 
+ #ifdef TW_LOAD_VENDOR_MODULES
+ 	if (startup.Get_Fastboot_Mode()) {
+@@ -409,6 +431,8 @@ int main(int argc, char **argv) {
+ #endif
+ 
+ 	printf("Starting the UI...\n");
++	// P4.35 stage 8: gui_init about to be called
++	so01k_p435_publish_preui_stage(SO01K_P435_GUI_INIT_REACHED);
+ 	gui_init();
+ 
+ 	if (!startup.Get_Fastboot_Mode()) PartitionManager.Setup_Fstab_Partitions(true);

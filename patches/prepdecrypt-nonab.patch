@@ -1,0 +1,15 @@
+diff --git a/crypto/system/bin/prepdecrypt.sh b/crypto/system/bin/prepdecrypt.sh
+index 93bfa57..9756ef6 100644
+--- a/crypto/system/bin/prepdecrypt.sh
++++ b/crypto/system/bin/prepdecrypt.sh
+@@ -293,7 +293,9 @@ fi
+ 
+ ab_device=$(getprop ro.build.ab_update)
+ 
+-if [ -n "$ab_device" ]; then
++# AOSP sets ro.build.ab_update=false for non-A/B devices; a non-empty test
++# would misdetect such devices as A/B. Only a literal "true" is A/B.
++if [ "$ab_device" = "true" ]; then
+ 	log_print 2 "A/B device detected! Finding current boot slot..."
+ 	suffix=$(getprop ro.boot.slot_suffix)
+ 	if [ -z "$suffix" ]; then

@@ -1,0 +1,45 @@
+diff --git a/Keymaster.cpp b/Keymaster.cpp
+index 4781d91..83d9387 100644
+--- a/Keymaster.cpp
++++ b/Keymaster.cpp
+@@ -18,6 +18,8 @@
+ 
+ #include <android-base/logging.h>
+ 
++#include <unistd.h>
++
+ #include <aidl/android/hardware/security/keymint/SecurityLevel.h>
+ #include <aidl/android/security/maintenance/IKeystoreMaintenance.h>
+ #include <aidl/android/system/keystore2/Domain.h>
+@@ -104,11 +106,29 @@ bool KeymasterOperation::finish(std::string* output) {
+ }
+ 
+ Keymaster::Keymaster() {
+-    ::ndk::SpAIBinder binder(AServiceManager_waitForService(keystore2_service_name));
++    // SO-01K FBE recovery compat (P4.46): in this TWRP ramdisk keystore2 never
++    // registers IKeystoreService (it crash-loops on SIGABRT because the keymaster
++    // HIDL HAL is absent), so an unbounded waitForService() here would deadlock
++    // the single-threaded recovery at boot.  Poll briefly, then fail cleanly so
++    // keystore2-backed v1 unwrap is deferred instead of hanging.
++    static constexpr int kKeystore2WaitAttempts = 40;  // 40 x 250 ms = 10 s max
++    static constexpr int kKeystore2WaitDelayMs = 250;
++
++    ::ndk::SpAIBinder binder;
++    int attempt = 0;
++    for (; attempt < kKeystore2WaitAttempts; ++attempt) {
++        binder = ::ndk::SpAIBinder(AServiceManager_checkService(keystore2_service_name));
++        if (binder.get() != nullptr) break;
++        LOG(INFO) << "Vold keystore2 service unavailable (attempt " << (attempt + 1) << "/"
++                  << kKeystore2WaitAttempts << ")";
++        usleep(kKeystore2WaitDelayMs * 1000);
++    }
+     auto keystore2Service = ks2::IKeystoreService::fromBinder(binder);
+ 
+     if (!keystore2Service) {
+-        LOG(ERROR) << "Vold unable to connect to keystore2.";
++        LOG(ERROR) << "Vold unable to connect to keystore2 after " << kKeystore2WaitAttempts
++                   << " attempts (" << kKeystore2WaitAttempts * kKeystore2WaitDelayMs
++                   << " ms). Deferring keystore2-backed key operations; recovery stays live.";
+         return;
+     }
+ 

@@ -9,6 +9,13 @@ and the P4.47 framework VINTF manifest. The companion public device tree has
 the P4.51 `/system_root` backup mapping and the VINTF copy rule. See
 `PATCHES.md` for exact bases, causes, commands, and evidence.
 
+The exact custom kernel binary is in the
+[`keee-toy/android_device_sony_poplar_docomo-twrp`](https://github.com/keee-toy/android_device_sony_poplar_docomo-twrp)
+device repository. `kernel-source/` records the pinned public upstream kernel
+base, the two SO-01K source deltas, and the frozen kernel configuration.
+The checkout inputs are in
+[`keee-toy/android_manifest_so01k_twrp`](https://github.com/keee-toy/android_manifest_so01k_twrp).
+
 From a compatible fresh checkout with the pinned device tree, run:
 
 ```sh

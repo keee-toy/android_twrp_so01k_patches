@@ -1,0 +1,13 @@
+diff --git a/arch/arm64/configs/lineage-msm8998-yoshino-poplar_docomo_defconfig b/arch/arm64/configs/lineage-msm8998-yoshino-poplar_docomo_defconfig
+index c22c4c995..9d52798bf 100644
+--- a/arch/arm64/configs/lineage-msm8998-yoshino-poplar_docomo_defconfig
++++ b/arch/arm64/configs/lineage-msm8998-yoshino-poplar_docomo_defconfig
+@@ -449,6 +449,8 @@ CONFIG_ARM64_VA_BITS=39
+ CONFIG_SCHED_MC=y
+ # CONFIG_SCHED_SMT is not set
+ CONFIG_NR_CPUS=8
++CONFIG_LITTLE_CPU_MASK=15
++CONFIG_BIG_CPU_MASK=240
+ CONFIG_HOTPLUG_CPU=y
+ CONFIG_ARCH_ENABLE_MEMORY_HOTPLUG=y
+ CONFIG_ARCH_ENABLE_MEMORY_HOTREMOVE=y

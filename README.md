@@ -22,9 +22,19 @@ From a compatible fresh checkout with the pinned device tree, run:
 ./apply-p451-public.sh /path/to/twrp-12.1
 ```
 
-The script checks all base commits, verifies the device source and manifest,
-then applies the three small upstream patches. It does not obtain stock crypto
-components, build an image, or reproduce the frozen image byte for byte.
+The public manifest pins the final normalized device commit
+`5829c6eacb6bbe96df7017f9ac1c18e735fde2b2`. Its P4.47 framework VINTF
+manifest and P4.51 `/system_root` mapping are already committed. The script
+checks those files in place, then applies only the three small upstream patches.
+It checks exact project HEADs, hashes, and clean states before changing files.
+
+Phase 2's first independent GitHub clone found that the original setup script
+expected earlier device commit `ee171c098acbc770127778f20d3e210f5494ac15`
+while the public manifest pinned `5829c6e`. This forward fix accepts the final
+device commit and avoids reinstalling the already committed P4.47 source.
+
+The script does not obtain stock crypto components, build an image, or reproduce
+the frozen image byte for byte.
 `device.mk` records the private stock component paths used in the physical
 configuration; those binaries are absent from all public repositories.
 

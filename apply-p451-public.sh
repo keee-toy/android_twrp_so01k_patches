@@ -25,7 +25,9 @@ check_project() {
     [[ -z $(git -C "$path" status --porcelain --untracked-files=all) ]] || fail "dirty project: $path"
 }
 
-check_project "$device" ee171c098acbc770127778f20d3e210f5494ac15
+# The public manifest pins the final normalized device tree. P4.47 and P4.51
+# are already committed there; only the upstream vold/qcom patches are applied.
+check_project "$device" 5829c6eacb6bbe96df7017f9ac1c18e735fde2b2
 check_project "$vold" a164ba05c5fef288059774a776b2e6e1119957cf
 check_project "$qcom" 98506f7919102378c8d52ee7d6a94a867f1b4c55
 check_project "$recovery" 5c3d206a5eeb3d446bcda8248a405a4b278bab5c
@@ -48,9 +50,7 @@ git -C "$vold" apply --check "$self/patches/p446-vold-keymaster.patch"
 git -C "$vold" apply --check "$self/patches/p449-vold-fscrypt.patch"
 git -C "$qcom" apply --check "$self/patches/prepdecrypt-nonab.patch"
 
-# Reinstall the pinned P4.47 source into its device-tree ramdisk input. The
-# matching device.mk rule copies it to /system/etc/vintf/manifest.xml.
-install -m 0644 "$self/vintf/p447-framework-manifest.xml" "$device/recovery/root/system/etc/vintf/manifest.xml"
+# P4.47 VINTF is verified above and remains unchanged in the device tree.
 git -C "$vold" apply "$self/patches/p446-vold-keymaster.patch"
 git -C "$vold" apply "$self/patches/p449-vold-fscrypt.patch"
 git -C "$qcom" apply "$self/patches/prepdecrypt-nonab.patch"
@@ -62,4 +62,4 @@ git -C "$vold" apply --reverse --check "$self/patches/p449-vold-fscrypt.patch"
 git -C "$qcom" apply --reverse --check "$self/patches/prepdecrypt-nonab.patch"
 cmp -s "$self/vintf/p447-framework-manifest.xml" "$device/recovery/root/system/etc/vintf/manifest.xml"
 check_hash c579edbb131dd7e7e2f2a3b8abfafe30b3172883b2af34fedf986e4c317f2c39 "$device/recovery/root/system/etc/twrp.flags"
-echo "P4.51 public source state applied: P4.46, P4.47, P4.49, prepdecrypt, and /system_root verified."
+echo "P4.51 public source state: P4.47 and /system_root verified; P4.46, P4.49, and prepdecrypt applied."
